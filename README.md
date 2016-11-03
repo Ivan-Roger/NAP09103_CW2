@@ -1,4 +1,4 @@
-# MetaChar #
+# WebApp #
 *Advanced Web Technologies / Coursework 2*
 
 _**This**_ is a web application to help people to encrypt and secure their communications.
