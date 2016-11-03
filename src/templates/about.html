@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}About{% endblock %}
+
+{% block content %}
+<section>
+  <article class="container">
+    <h2>About {{ data.config.about.name }}</h2>
+    <p>
+      This is an application developped by {{ data.config.about.author }} for the first coursework
+      in the module with the barbaric name of SET09103. This module is refered to as
+      "Advanced Web Technologies".
+    </p>
+  </article>
+  <article class="container">
+    <h2>Code</h2>
+    You can find all the code and documentation for this project on the git repository : <a href="{{data.config.repo.url}}">{{data.config.repo.name}} by @{{data.config.repo.user}}</a>
+  </article>
+</section>
+{% endblock %}

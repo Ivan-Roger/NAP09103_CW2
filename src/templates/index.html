@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<section class="container">
+  <article>
+    <h1>Welcome to {{data.config.about.name}}</h1>
+    <p>WIP</p>
+    <p class="text-center"><i class="fa fa-5x fa-spin fa-circle-o-notch"></i><p>
+  </article>
+  <article>
+    <h2>More infos</h2>
+    <p>
+      If you are a curious person why don't you visit the About page. It's free an let's you learn a lot of interesting stuff about this project.<br/>
+      Go on ! And if you want to contact me it's also there.
+    </p>
+    <a class="btn btn-info btn-lg pull-right" href="/about">OK, I'll have a look. <i class="fa fa-arrow-right"></i></a>
+  </article>
+</section>
+{% endblock %}

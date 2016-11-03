@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Error 404{% endblock %}
+{% block content %}
+<section>
+  <article  class="container">
+    <h1>Ooops ! <i>Error - {{ data.error }}</i></h1>
+    <p class="lead">The ressource you are trying to access is not available.</p>
+    <p>Try to go back where you came from.</p>
+  </article>
+</section>
+{% endblock %}
