@@ -2,7 +2,6 @@
 
 import ConfigParser
 import json
-import markdown
 import logging
 from logging.handlers import RotatingFileHandler
 from math import ceil
@@ -10,16 +9,18 @@ from urllib import urlencode
 from os import listdir
 from os.path import basename
 from flask import Flask, render_template, flash, redirect, url_for, request
+from flask_socketio import SocketIO, emit
 
 # --- --- GLOBAL VARS --- ---
 
 app = Flask(__name__)
 app.secret_key="41wZ9nAkS!hKrk5t#0GI"
+socketio = SocketIO(app)
 # app_config: Will be loaded in 'init()'
 app_config = { 'logging': {}, 'about': {}, 'repo': {} }
 app_nav = [
-	{'name': "Home", 'path': "/"},
-	{'name': "About", 'path': "/about"}
+	 {'name': "Home", 'path': "/"}
+	#,{'name': "About", 'path': "/about"}
 ]
 
 class NotFoundEx(Exception):
@@ -42,11 +43,11 @@ def route_root():
 	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/"}}
 	return render_template('index.html', data=data)
 
-@app.route('/about')
+@app.route('/app')
 def route_about():
 	logRequest()
-	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/about"}}
-	return render_template('about.html', data=data)
+	data = {'config': app_config}
+	return render_template('app.html', data=data)
 
 # --- --- ERRORS --- --- #
 
@@ -128,7 +129,8 @@ if __name__ == '__main__':
 	init(app)
 	logs(app)
 	app.logger.info("START - Application started !")
-	app.run(
+	socketio.run(
+	    app,
 	    host=app.config['ip_address'],
 	    port=int(app.config['port'])
 	)
