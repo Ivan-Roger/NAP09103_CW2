@@ -1,0 +1,49 @@
+{% macro navItem(item, active) %}
+  {% if item.path == active %}
+    <li class="active"><a href="{{ active }}">{{ item.name}} <span class="sr-only">(current)</span></a></li>
+  {% else %}
+    <li><a href="{{ item.path }}">{{ item.name}}</a></li>
+  {% endif %}
+{% endmacro %}
+
+{% macro paginationNav(pages) %}
+<nav class="pagination-nav">
+  <ul class="pagination">
+    {% if 'prev' in pages %}
+      <li>
+        <a href="{{pages.prefix}}{{pages.prev}}" aria-label="Previous" >
+          <span aria-hidden="true">&laquo;</span>
+        </a>
+      </li>
+    {% else %}
+      <li class="disabled">
+        <a href="#" aria-label="Previous" >
+          <span aria-hidden="true">&laquo;</span>
+        </a>
+      </li>
+    {% endif %}
+
+    {% for p in pages.list %}
+      {% if p == pages.cur %}
+        <li class="active"><a href="#">{{p}} <span class="sr-only">(current)</span></a></li>
+      {% else %}
+        <li><a href="{{pages.prefix}}{{p}}">{{p}}</a></li>
+      {% endif %}
+    {% endfor %}
+
+    {% if 'next' in pages %}
+      <li>
+        <a href="{{pages.prefix}}{{pages.next}}" aria-label="Next" >
+          <span aria-hidden="true">&raquo;</span>
+        </a>
+      </li>
+    {% else %}
+      <li class="disabled">
+        <a href="#" aria-label="Next" >
+          <span aria-hidden="true">&raquo;</span>
+        </a>
+      </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endmacro %}

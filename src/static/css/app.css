@@ -1,0 +1,57 @@
+/* ----------------------- */
+/* ---    APP style    --- */
+/* ----------------------- */
+
+section.app-chat {
+  position: absolute;
+  top: 51px;
+  height: calc( 100% - 52px );
+  width: 100%;
+  overflow-y: hidden;
+}
+
+article.app-chatBox {
+  height: 100%;
+}
+
+div.app-chatLog {
+  position: relative;
+  height: calc( 100% - 130px );
+  width: 100%;
+  overflow-y: auto;
+}
+
+div.app-chatLog div.app-msgList {
+  list-style-type: none;
+  padding-left: 0px;
+  margin-bottom: 10px;
+}
+
+div.app-chatLog div.app-msgList div.app-chatMsg {
+  margin-bottom: 3px;
+}
+
+div.app-chatLog div.app-msgList div.app-chatMsg:hover {
+  background-color: #EFEFEF;
+}
+
+div.app-chatLog div.app-msgList div.app-chatMsg > div {
+  display: inline-block;
+}
+
+div.app-chatLog div.app-msgList div.app-chatMsg > div.app-chatMsgUser {
+  width: 20%;
+  vertical-align: top;
+  text-align: right;
+  padding-right: 10px;
+}
+
+div.app-chatLog div.app-msgList div.app-chatMsg > div.app-chatMsgContent {
+  width: 70%;
+}
+
+div.app-chatLog div.app-msgList div.app-chatMsg > div.app-chatMsgInfos {
+  width: auto;
+  float: right;
+  margin-right: 5px;
+}

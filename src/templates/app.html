@@ -1,34 +1,51 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>{{ data.config.about.name }} - Application</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
-    <!-- 1. Load libraries -->
-    <!-- IE required polyfill -->
-    <script src="https://unpkg.com/core-js/client/shim.min.js"></script>
+{% extends 'base.html' %}
 
-    <script src="https://unpkg.com/zone.js@0.6.25?main=browser"></script>
-    <script src="https://unpkg.com/reflect-metadata@0.1.8"></script>
+{% block title %}Home{% endblock %}
 
-    <script src="https://unpkg.com/rxjs@5.0.0-beta.12/bundles/Rx.js"></script>
-    <script src="https://unpkg.com/@angular/core/bundles/core.umd.js"></script>
-    <script src="https://unpkg.com/@angular/common/bundles/common.umd.js"></script>
-    <script src="https://unpkg.com/@angular/compiler/bundles/compiler.umd.js"></script>
-    <script src="https://unpkg.com/@angular/platform-browser/bundles/platform-browser.umd.js"></script>
-    <script src="https://unpkg.com/@angular/platform-browser-dynamic/bundles/platform-browser-dynamic.umd.js"></script>
+{% block depHead %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
+<script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/openpgp.min.js') }}"></script>
+{% endblock %}
 
-    <!-- 2. Load our 'modules' -->
-    <script src="{{ url_for('static', filename='app/app.component.js') }}"></script>
-    <script src="{{ url_for('static', filename='app/app.module.js') }}"></script>
-    <script src="{{ url_for('static', filename='app/main.js') }}"></script>
-  </head>
-  <!-- 3. Display the application -->
-  <body>
-    <my-app>
-      <p class="text-center">Loading...<br/><i class="fa fa-spin fa-circle-o-notch fa-3x"></i></p>
-    </my-app>
-  </body>
-</html>
+{% block content %}
+<section class="container-fluid app-chat">
+  <aside class="col-lg-visible col-lg-2 app-contactsPanel">
+    <h1>Contacts</h1>
+  </aside>
+  <article class="col-md-12 col-lg-7 app-chatBox">
+    <h1>{{data.config.about.name}} - Chat</h1>
+    <div class="app-chatLog">
+      <div class="app-msgList" id="app-msgList">
+        <div class="app-chatMsg" id="app-template-chatMsg">
+          <div class="app-chatMsgInfos">
+            <i class="app-msgInfosTime">16:06:34</i>
+          </div>
+          <div class="app-chatMsgUser">
+            <b class="app-msgUserName">USER</b>:
+          </div>
+          <div class="app-chatMsgContent">
+            This is the content of the message !
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="app-chatInput">
+      <div class="input-group">
+        <input class="form-control" type="text" name="msgText" autocomplete="off"/>
+        <div class="input-group-btn">
+          <a class="btn btn-default">Send</a>
+        </div>
+      </div>
+    </div>
+  </article>
+  <aside class="col-lg-visible col-lg-3 app-detailsPanel">
+    <h1>Details</h1>
+  </aside>
+</section>
+{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block jsAfter %}
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

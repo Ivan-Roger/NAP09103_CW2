@@ -1,0 +1,18 @@
+<div class="chat-log">
+  <h2>Chat log</h2>
+  <div class="message-list">
+    <div class="row chat-message" *ngFor="let msg of list">
+      <div class="container">
+        <div class="col-sm-3">
+          <a><b>{{msg.sender.name}}</b></a>
+        </div>
+        <div class="col-sm-7 col-xs-10">
+          {{msg.message}}
+        </div>
+        <div class="col-sm-2 col-xs-2 text-right">
+          <i>{{msg.time}}</i>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

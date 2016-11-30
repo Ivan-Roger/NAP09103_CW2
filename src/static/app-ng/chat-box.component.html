@@ -1,0 +1,12 @@
+<div class="container">
+  <h1>Chat box</h1>
+  <chat-log></chat-log>
+  <form class="inline-form" (ngSubmit)="sendMessage()">
+    <div class="input-group">
+      <input type="text" class="form-control" name="newMsg" autocomplete="off"/>
+      <span class="input-group-btn">
+        <input type="submit" class="btn btn-default" value="Send"/>
+      </span>
+    </div>
+  </form>
+</div>

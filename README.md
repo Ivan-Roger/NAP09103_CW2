@@ -35,3 +35,9 @@ You can modify the application settings in the config file : `src/etc/defaults.c
 To get more infos on this project please read the report in the documentation : [`doc/report/report.pdf`](https://github.com/Ivan-Roger/NAP09103_CW2/raw/master/doc/report/report.pdf)
 
 If you find out any issue please report them in the [**issue tracker**](https://github.com/Ivan-Roger/NAP09103_CW2/issues).
+
+## Links ##
+
+* [Flask-SocketIO](https://github.com/miguelgrinberg/Flask-SocketIO)
+* [OpenPGP.js](https://openpgpjs.org/)
+* [Article: *Angular and SocketIO*](https://www.html5rocks.com/en/tutorials/frameworks/angular-websockets/)

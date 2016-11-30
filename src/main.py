@@ -3,13 +3,14 @@
 import ConfigParser
 import json
 import logging
+import sqlite3
 from logging.handlers import RotatingFileHandler
 from math import ceil
 from urllib import urlencode
 from os import listdir
 from os.path import basename
-from flask import Flask, render_template, flash, redirect, url_for, request
 from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, flash, redirect, url_for, request, jsonify
 
 # --- --- GLOBAL VARS --- ---
 
@@ -17,11 +18,14 @@ app = Flask(__name__)
 app.secret_key="41wZ9nAkS!hKrk5t#0GI"
 socketio = SocketIO(app)
 # app_config: Will be loaded in 'init()'
-app_config = { 'logging': {}, 'about': {}, 'repo': {} }
+app_config = { 'logging': {}, 'about': {}, 'repo': {}, 'db': {} }
 app_nav = [
-	 {'name': "Home", 'path': "/"}
-	#,{'name': "About", 'path': "/about"}
+	{'name': "Home", 'path': "/"},
+	{'name': "About", 'path': "/about"},
+	{'name': "App", 'path': "/app"}
 ]
+app_keys = {'private':"", 'public':""}
+# ThatiSREALLYaGooDSecret
 
 class NotFoundEx(Exception):
 	msg = "Ressource not found."
@@ -43,11 +47,28 @@ def route_root():
 	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/"}}
 	return render_template('index.html', data=data)
 
-@app.route('/app')
+@app.route('/about')
 def route_about():
 	logRequest()
-	data = {'config': app_config}
+	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/about"}}
+	return render_template('index.html', data=data)
+
+@app.route('/app')
+def route_application():
+	logRequest()
+	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/app"}}
 	return render_template('app.html', data=data)
+
+@app.route('/api', methods=['GET'])
+def route_apiRoot():
+	logRequest()
+	data = {'status': 'OK'}
+	return jsonify(data)
+@app.route('/api', methods=['OPTIONS'])
+def routeI_apiRoot():
+	logRequest()
+	data = {'endpoint': '/api', 'routes': [{'route': '/', 'desc': "Returns informations on the status of the service."}] }
+	return jsonify(data)
 
 # --- --- ERRORS --- --- #
 
@@ -85,6 +106,21 @@ def splitListIntoPages(data, urlArgs):
 
 # --- --- SETUP --- ---
 
+@socketio.on('connect')
+def socket_connect():
+	app.logger.info('SOCKET | New user! ')
+
+@socketio.on('init')
+def socket_connect(data):
+	app.logger.info('SOCKET | User init state: '+data["state"])
+	if data['state']=='DONE':
+		emit("serverKey", app_keys['public'])
+
+@socketio.on('encMessage')
+def socket_message(json):
+	app.logger.info('SOCKET | Encrypted message. ')
+	emit("encMessage",json)
+
 def logRequest():
 	app.logger.info(request.method+": "+request.url)
 
@@ -103,6 +139,10 @@ def init(app):
 		app.config['ip_address'] = config.get("config", "ip_address")
 		app.config['port'] = config.get("config", "port")
 		app.config['url'] = config.get("config", "url")
+		# Database
+		app_config['db']['database'] = config.get("db", "database")
+		app_config['db']['drop'] = config.get("db", "drop")
+		app_config['db']['create'] = config.get("db", "create")
 		# Logging
 		app_config['logging']['file'] = config.get("logging", "name")
 		app_config['logging']['location'] = config.get("logging", "location")
@@ -115,6 +155,17 @@ def init(app):
 	except IOError as e:
 		app.logger.error("ERROR - Could not read configs from: "+config_location)
 		app.logger.error("\t>>"+str(e))
+	try:
+		pubkeyFile = open('keys/pubkey.txt','r')
+		app_keys['public'] = pubkeyFile.read()
+		pubkeyFile.close()
+		privkeyFile = open('keys/privkey.txt','r')
+		app_keys['private'] = privkeyFile.read()
+		privkeyFile.close()
+	except IOError as e:
+		app.logger.error("ERROR - Could not get application keys.")
+		app.logger.error("\t>>"+str(e))
+	app_db = sqlite3.connect(app_config['db']['database'])
 
 def logs(app):
 	log_pathname = app_config['logging']['location'] + app_config['logging']['file']
@@ -130,7 +181,7 @@ if __name__ == '__main__':
 	logs(app)
 	app.logger.info("START - Application started !")
 	socketio.run(
-	    app,
+		app,
 	    host=app.config['ip_address'],
 	    port=int(app.config['port'])
 	)
