@@ -10,19 +10,64 @@ section.app-chat {
   overflow-y: hidden;
 }
 
-aside.app-chatContacts div.app-chatContactsList div.app-chatContactsList-item.user-online {
-  border-left: 3px;
-  border-left-color: #2A3;
-  border-radius: 2px;
+section.app-chat article, section.app-chat aside {
+  height: 100%;
 }
 
-aside.app-chatContacts div.app-chatContactsList div.app-chatContactsList-item {
-  border-bottom: 1px;
-  border-color: #EFEFEF;
+/* --- Contacts --- */
+aside.app-chatContacts.add > div.showContacts,
+aside.app-chatContacts:not(.add) div.app-contactAdd {
+  display: none;
+}
+
+aside.app-chatContacts > div.showContacts {
+  position: relative;
+  height: 100%;
+}
+
+aside.app-chatContacts div.app-contactList {
+  position: relative;
+  height: calc( 100% - 100px );
+  overflow-y: auto;
+}
+
+aside.app-chatContacts div.app-contactList div.app-contactListItem {
+  border-bottom: 1px solid #DDD;
+  border-left: 5px solid #BBB;
+  border-radius: 5px;
   margin-bottom: 5px;
+  padding-left: 7px;
+  padding-top: 5px;
+}
+aside.app-chatContacts div.app-contactList div.app-contactListItem h3 {
+  margin-top: 0px;
 }
 
-article.app-chatBox {
+aside.app-chatContacts div.app-contactList div.app-contactListItem.user-online {
+  border-left-color: #2A3;
+}
+aside.app-chatContacts div.app-contactList div.app-contactListItem.user-online i {
+  display: none;
+}
+
+aside.app-chatContacts div.app-contactList div.app-contactListItem.user-online.active {
+  border-left-color: #4C9EF9;
+}
+
+/* --- Chat box --- */
+article.app-chatBox.noDiscussionOpened > div.discussion,
+article.app-chatBox:not(.loading) > div.loading,
+article.app-chatBox.loading > div.discussion,
+article.app-chatBox:not(.noDiscussionOpened) > div.help {
+  display: none;
+}
+
+article.app-chatBox > div.loading {
+  margin-top: 70px;
+}
+
+article.app-chatBox > div.discussion {
+  position: relative;
   height: 100%;
 }
 

@@ -29,30 +29,46 @@
 <section class="container-fluid app-chat hide" id="app-chat">
   <aside class="col-lg-visible col-lg-2 app-chatContacts">
     <h2>Contacts</h2>
-    <div class="app-contactList">
+    <div class="showContacts">
+      <div class="app-contactList">
+      </div>
+      <div class="text-center">
+        <a class="btn btn-primary"><i class="fa fa-user-plus"></i> Add a contact</a>
+      </div>
     </div>
     <div class="app-contactAdd">
       <h3>Add a contact</h3>
       <div class="input-group">
         <input type="text" class="form-control app-contactAdd-search"/>
         <div class="input-group-btn">
-          <a class="btn btn-default">Search</a>
+          <a class="btn btn-default"><i class="fa fa-close"></i></a>
         </div>
       </div>
     </div>
   </aside>
-  <article class="col-md-12 col-lg-7 app-chatBox">
-    <h2 class="app-chatBoxTitle">Open a discussion</h2>
-    <!-- Discussion with: <i class="app-chatBoxTitle-with"></i> -->
-    <div class="app-chatLog hide">
-      <div class="app-msgList">
-      </div>
+  <article class="col-md-12 col-lg-7 app-chatBox noDiscussionOpened">
+    <div class="help">
+      <h2>Open a discussion</h2>
+      <p>
+        You can start a discussion with a contact on the left.<br/>
+        If you don't have any contact yet you can add some by clicking on the 'Add a contact' button
+      </p>
     </div>
-    <div class="app-chatInput hide">
-      <div class="input-group">
-        <input class="form-control" type="text" class="app-chatInputMsg" autocomplete="off"/>
-        <div class="input-group-btn">
-          <a class="btn btn-default">Send</a>
+    <div class="loading">
+      <p class="text-center"><i class="fa fa-pulse fa-4x fa-spinner"></i><br/>Loading ...</p>
+    </div>
+    <div class="discussion">
+      <!-- <h2>Discussion with: <i class="app-chatBoxTitle-with"></i></h2> -->
+      <div class="app-chatLog">
+        <div class="app-msgList">
+        </div>
+      </div>
+      <div class="app-chatInput">
+        <div class="input-group">
+          <input class="form-control" type="text" class="app-chatInputMsg" autocomplete="off"/>
+          <div class="input-group-btn">
+            <a class="btn btn-default">Send</a>
+          </div>
         </div>
       </div>
     </div>
@@ -66,9 +82,9 @@
 
 {% block depAfter %}
   <!-- Templates -->
-  <div class="hide">
+  <div class="hide" id="app-templates">
     <!-- Chat Message -->
-    <div class="app-chatMsg" id="app-template-chatMsg">
+    <div class="app-chatMsg">
       <div class="app-chatMsgInfos">
         <i class="app-msgInfosTime">16:06:34</i>
       </div>
@@ -80,9 +96,9 @@
       </div>
     </div>
     <!-- Contact item -->
-    <div class="app-contactListItem" id="app-template-contactListItem">
+    <div class="app-contactListItem">
       <h3>Pseudo</h3>
-      <i>Last seen: <span class="lastOnline"></span></i>
+      <i>Last seen: <span class="lastSeen"></span></i>
       <p>TAGS ...</p>
     </div>
   </div>

@@ -11,7 +11,7 @@ from os import listdir
 from os.path import basename
 from uuid import uuid4 as randomID
 from time import time as timestamp
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask import Flask, render_template, flash, redirect, url_for, request, jsonify, g
 
 # ============== GLOBAL VARS ==============
@@ -28,7 +28,7 @@ app_nav = [
 ]
 app_keys = {'private':"", 'public':""}
 connected_users = {}
-chat_rooms = []
+chat_discussions = {}
 api_tokens = {}
 # ThatiSREALLYaGooDSecret
 
@@ -56,7 +56,7 @@ def route_root():
 def route_about():
 	logRequest()
 	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/about"}}
-	return render_template('index.html', data=data)
+	return render_template('about.html', data=data)
 
 @app.route('/app')
 def route_application():
@@ -101,7 +101,7 @@ def route_apiLogin():
 		return jsonify({'status': 'error', 'error': 'LOGIN_ERROR', 'message': 'Invalid email or password !'}), 401
 	con = get_db()
 	cur = con.cursor()
-	cur.execute("UPDATE users SET lastOnline = ?", (timestamp(),) )
+	cur.execute("UPDATE users SET lastOnline = ? WHERE id = ?", (timestamp(),row['id']) )
 	con.commit()
 	data = {'status': 'OK', 'userID': row['id'], 'pseudo': row['pseudo'], 'token': gen_token(row['id'])}
 	return jsonify(data)
@@ -112,7 +112,7 @@ def route_apiUsers():
 	cursor = get_db().cursor()
 	row = cursor.execute("SELECT COUNT(*) as count FROM users").fetchone();
 	if row is None:
-		app.logger.error('Database | Returned NONE !')
+		app.logger.error('USERS | Returned NONE !')
 		return jsonify({'status': 'error', 'error': 'DB_ERROR', 'message': 'Error when performing DB request. Returned None'}), 500
 	data = {'status': 'OK', 'count': row['count']}
 	return jsonify(data)
@@ -136,7 +136,10 @@ def route_apiUser_pseudo(pseudo):
 	if row is None:
 		app.logger.error('USER_INFO | Pseudo not found ! pseudo: '+pseudo)
 		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
-	data = {'status': 'OK', 'id': row['id'], 'pseudo': row['pseudo']}
+	data = {'status': 'OK', 'id': row['id'], 'pseudo': row['pseudo'], 'isOnline': False, 'lastOnline': row['lastOnline']}
+	if connected_users.get(str(row['id']), None) is not None:
+		del data['lastOnline']
+		data['isOnline'] = True
 	return jsonify(data)
 
 @app.route('/api/users/<pseudo>/contacts', methods=['GET'])
@@ -160,15 +163,15 @@ def route_apiUserContacts_pseudo(pseudo):
 	rows = cursor.execute("""
 		SELECT U.*, C.tags
 		FROM contacts C, users U
-		WHERE C.userID = (SELECT M.id FROM users M WHERE M.id = ?)
+		WHERE C.userID = ?
 		AND C.contact = U.id
 	""", (user['id'],) ).fetchall();
 	data = {'status': 'OK', 'contacts': []}
 	for row in rows:
 		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
-		if row['id'] in connected_users:
+		if user_isOnline(row['id']):
 			del uInfo['lastOnline']
-			uInfo['isOnline'] = true
+			uInfo['isOnline'] = True
 		data['contacts'].append(uInfo)
 	return jsonify(data)
 
@@ -193,16 +196,110 @@ def route_apiUserContacts_id(userID):
 	rows = cursor.execute("""
 		SELECT U.*, C.tags
 		FROM contacts C, users U
-		WHERE C.userID = (SELECT M.id FROM users M WHERE M.id = ?)
+		WHERE C.userID = ?
 		AND C.contact = U.id
 	""", (userID,) ).fetchall();
 	data = {'status': 'OK', 'contacts': []}
 	for row in rows:
 		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
-		if row['id'] in connected_users:
+		if user_isOnline(row['id']):
 			del uInfo['lastOnline']
-			uInfo['isOnline'] = true
+			uInfo['isOnline'] = True
 		data['contacts'].append(uInfo)
+	return jsonify(data)
+
+@app.route('/api/users/<int:userID>/public-key', methods=['GET'])
+def route_apiUserPubkey_id(userID):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_PUBKEY | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_PUBKEY | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromID(userID)
+	if user is None:
+		app.logger.error('USER_PUBKEY | User not found ! id: '+userID)
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT key FROM publicKeys WHERE userID = ?", (userID,) ).fetchone();
+	if row is None:
+		app.logger.error('USER_PUBKEY | Returned NONE !')
+		return jsonify({'status': 'error', 'error': 'SYSTEM_ERROR', 'message': 'Error. No public key could be found for this user.'}), 500
+	data = {'status': 'OK', 'public_key': row['key']}
+	return jsonify(data)
+
+@app.route('/api/users/<pseudo>/public-key', methods=['GET'])
+def route_apiUserPubkey_pseudo(pseudo):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_PUBKEY | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_PUBKEY | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromPseudo(pseudo)
+	if user is None:
+		app.logger.error('USER_PUBKEY | User not found ! id: '+user['id'])
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT key FROM publicKeys WHERE userID = ?", (user['id'],) ).fetchone();
+	if row is None:
+		app.logger.error('USER_PUBKEY | Returned NONE !')
+		return jsonify({'status': 'error', 'error': 'SYSTEM_ERROR', 'message': 'Error. No public key could be found for this user.'}), 500
+	data = {'status': 'OK', 'public_key': row['key']}
+	return jsonify(data)
+
+@app.route('/api/users/<int:userID>/private-key', methods=['GET'])
+def route_apiUserPrivkey_id(userID):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_PRIVKEY | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_PRIVKEY | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromID(userID)
+	if user is None:
+		app.logger.error('USER_PRIVKEY | User not found ! id: '+userID)
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	if not token_canAccess_privateKey(req_token, userID):
+		app.logger.error('USER_PRIVKEY | Access forbidden ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT encKey FROM privateKeys WHERE userID = ?", (userID,) ).fetchone();
+	if row is None:
+		app.logger.error('USER_PRIVKEY | Returned NONE !')
+		return jsonify({'status': 'error', 'error': 'SYSTEM_ERROR', 'message': 'Error. No private key could be found for this user.'}), 500
+	data = {'status': 'OK', 'public_key': row['encKey']}
+	return jsonify(data)
+
+@app.route('/api/users/<pseudo>/private-key', methods=['GET'])
+def route_apiUserPrivkey_pseudo(pseudo):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_PRIVKEY | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_PRIVKEY | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromPseudo(pseudo)
+	if user is None:
+		app.logger.error('USER_PRIVKEY | User not found ! id: '+user['id'])
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	if not token_canAccess_privateKey(req_token, user['id']):
+		app.logger.error('USER_PRIVKEY | Access forbidden ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT encKey FROM privateKeys WHERE userID = ?", (user['id'],) ).fetchone();
+	if row is None:
+		app.logger.error('USER_PRIVKEY | Returned NONE !')
+		return jsonify({'status': 'error', 'error': 'SYSTEM_ERROR', 'message': 'Error. No private key could be found for this user.'}), 500
+	data = {'status': 'OK', 'public_key': row['encKey']}
 	return jsonify(data)
 
 # -------------- SOCKET -------------- #
@@ -213,29 +310,104 @@ def socket_connect():
 
 @socketio.on('init')
 def socket_init(data):
-	app.logger.info('SOCKET | INIT: '+data.get('pseudo','UNKNOWN')+'['+data.get('user', '-1')+'] token: '+data.get('token', 'NO_TOKEN'))
 	if token_isValid(data.get('token', 'NO_TOKEN')):
+		app.logger.info('SOCKET | INIT: '+data.get('pseudo','UNKNOWN')+'['+str(data.get('userID', -1))+'] token: '+data.get('token', 'NO_TOKEN'))
 		uInfo = api_tokens[data['token']]
-		connected_users[uInfo['user']] = timestamp()
+		connected_users[str(uInfo['user'])] = timestamp()
+		join_room(str(uInfo['user'])+"-info")
 
-@socketio.on('open')
-def socket_openLink(data):
+@socketio.on('ask')
+def socket_askDisc(data):
 	if token_isValid(data.get('token', 'NO_TOKEN')):
 		uInfo = api_tokens[data['token']]
 		contacts = db_getContacts_fromUserID(uInfo['user'])
-		if data.get('recipient', -1) in contacts:
-			app.logger.info('SOCKET | Opening discussion between '++' and '++' . ')
-			emit("open", {}, room=uInfo['user']+"-"+data['recipient'])
+		if data.get('user', -1) not in contacts or not user_isOnline(data['user']):
+			return
+		if discussion_find(uInfo['user'], data['user']) is not None:
+			return
+		app.logger.info('SOCKET | Requesting discussion : '+uInfo['user']+' > '+data['user'])
+		discID = randomID().hex
+		while chat_discussions.get(discID, None) is not None:
+			discID = randomID().hex
+		disc = {'id': discID,'userA': uInfo['user'], 'userB': data['user'], 'accepted': False}
+		chat_discussions[discID] = disc
+		emit("ask", {'discussion': disc, 'message': 'I want to talk.'}, namespace='/user-'+str(disc['userB']))
 
-@socketio.on('close')
-def socket_closeLink(json):
-	app.logger.info('SOCKET | Encrypted message.')
-	emit("encMessage",json)
+@socketio.on('accept')
+def socket_acceptDisc(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Discussion started. '+disc['id'])
+		chat_discussions[disc['id']]['accepted'] = True
+		emit("accept", {'discussion': disc}, namespace='/user-'+str(disc['userA']))
 
-@socketio.on('open')
-def socket_message(json):
-	app.logger.info('SOCKET | Encrypted message.')
-	emit("encMessage",json)
+@socketio.on('reject')
+def socket_rejectDisc(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Discussion refused. '+disc['id'])
+		emit("reject", {'discussion': disc}, namespace='/user-'+str(disc['userA']))
+		del chat_discussions[disc['id']]
+
+@socketio.on('leave')
+def socket_leaveDisc(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Leave discussion. ')
+		del chat_discussions[disc['id']]
+
+@socketio.on('message')
+def socket_message(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Message.')
+		msg = {'sender': uInfo['user'], 'discussion': disc['id'], 'message': data['message']}
+		emit("message",msg, namespace='/user-'+disc['userA'])
+		emit("message",msg, namespace='/user-'+disc['userB'])
+
+@socketio.on('join')
+def socket_join(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Join.')
+		msg = {'sender': uInfo['user'], 'discussion': disc['id'], 'message': "has joined the discussion."}
+		emit("join",msg, namespace='/user-'+disc['userA'])
+		emit("join",msg, namespace='/user-'+disc['userB'])
 
 # ============== ERRORS ============== #
 
@@ -271,6 +443,17 @@ def splitListIntoPages(data, urlArgs):
 	data['pages']['prefix'] = "?"+url_prefix+( "" if url_prefix == "" else "&" )+"page="
 	return data
 
+def user_isOnline():
+	return connected_users.get(str(row['id']), None) is not None
+
+def discussion_find(userA, userB):
+	for disc in chat_discussions:
+		if disc['userA']==userA and disc['userB']==userB:
+			return disc
+		if disc['userA']==userB and disc['userB']==userA:
+			return disc
+	return None
+
 def gen_token(userID):
 	for index in api_tokens:
 		if api_tokens[index]['user'] == userID:
@@ -293,6 +476,14 @@ def token_isValid(token):
 def token_canAccess_profileDetails(token, uID):
 	found = api_tokens.get(token, None)
 	if found['user']==0: # Admin
+		return True
+	if found['user']==uID: # Same user
+		return True
+	return False
+
+def token_canAccess_privateKey(token, uID):
+	found = api_tokens.get(token, None)
+	if found['user']==0: # Admin ok, TODO: Remove admin access
 		return True
 	if found['user']==uID: # Same user
 		return True
