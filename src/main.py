@@ -142,39 +142,6 @@ def route_apiUser_pseudo(pseudo):
 		data['isOnline'] = True
 	return jsonify(data)
 
-@app.route('/api/users/<pseudo>/contacts', methods=['GET'])
-def route_apiUserContacts_pseudo(pseudo):
-	logRequest()
-	req_token = request.args.get('token', None)
-	if req_token is None:
-		app.logger.error('USER_CONTACTS | Missing token !')
-		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
-	if not token_isValid(req_token):
-		app.logger.error('USER_CONTACTS | Invalid token ! token: '+req_token)
-		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
-	user = db_getUser_fromPseudo(pseudo)
-	if user is None:
-		app.logger.error('USER_CONTACTS | Pseudo not found ! pseudo: '+pseudo)
-		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
-	if not token_canAccess_profileDetails(req_token, user['id']):
-		app.logger.error('USER_CONTACTS | Access forbidden ! token: '+req_token)
-		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
-	cursor = get_db().cursor()
-	rows = cursor.execute("""
-		SELECT U.*, C.tags
-		FROM contacts C, users U
-		WHERE C.userID = ?
-		AND C.contact = U.id
-	""", (user['id'],) ).fetchall();
-	data = {'status': 'OK', 'contacts': []}
-	for row in rows:
-		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
-		if user_isOnline(row['id']):
-			del uInfo['lastOnline']
-			uInfo['isOnline'] = True
-		data['contacts'].append(uInfo)
-	return jsonify(data)
-
 @app.route('/api/users/<int:userID>/contacts', methods=['GET'])
 def route_apiUserContacts_id(userID):
 	logRequest()
@@ -192,13 +159,34 @@ def route_apiUserContacts_id(userID):
 	if not token_canAccess_profileDetails(req_token, userID):
 		app.logger.error('USER_CONTACTS | Access forbidden ! token: '+req_token)
 		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
-	cursor = get_db().cursor()
-	rows = cursor.execute("""
-		SELECT U.*, C.tags
-		FROM contacts C, users U
-		WHERE C.userID = ?
-		AND C.contact = U.id
-	""", (userID,) ).fetchall();
+	rows = db_getContacts_fromUserID(userID)
+	data = {'status': 'OK', 'contacts': []}
+	for row in rows:
+		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
+		if user_isOnline(row['id']):
+			del uInfo['lastOnline']
+			uInfo['isOnline'] = True
+		data['contacts'].append(uInfo)
+	return jsonify(data)
+
+@app.route('/api/users/<pseudo>/contacts', methods=['GET'])
+def route_apiUserContacts_pseudo(pseudo):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_CONTACTS | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_CONTACTS | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromPseudo(pseudo)
+	if user is None:
+		app.logger.error('USER_CONTACTS | Pseudo not found ! pseudo: '+pseudo)
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	if not token_canAccess_profileDetails(req_token, user['id']):
+		app.logger.error('USER_CONTACTS | Access forbidden ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
+	rows = db_getContacts_fromPseudo(pseudo)
 	data = {'status': 'OK', 'contacts': []}
 	for row in rows:
 		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
@@ -443,8 +431,8 @@ def splitListIntoPages(data, urlArgs):
 	data['pages']['prefix'] = "?"+url_prefix+( "" if url_prefix == "" else "&" )+"page="
 	return data
 
-def user_isOnline():
-	return connected_users.get(str(row['id']), None) is not None
+def user_isOnline(uID):
+	return connected_users.get(str(uID), None) is not None
 
 def discussion_find(userA, userB):
 	for disc in chat_discussions:
@@ -512,6 +500,21 @@ def db_getUser_fromID(userID):
 	cursor = get_db().cursor()
 	row = cursor.execute("SELECT * FROM users WHERE id = ?", (userID,) ).fetchone();
 	return row
+
+def db_getContacts_fromUserID(userID):
+	cursor = get_db().cursor()
+	rows = cursor.execute("""
+		SELECT U.*, C.tags FROM contacts C, users U WHERE C.userID = ? AND C.contact = U.id
+	""", (userID,) ).fetchall();
+	return rows
+
+def db_getContacts_fromPseudo(pseudo):
+	cursor = get_db().cursor()
+	rows = cursor.execute("""
+		SELECT U.*, C.tags FROM contacts C, users U WHERE C.userID = (SELECT id FROM users WHERE pseudo = ?)
+		AND C.contact = U.id
+	""", (pseudo,) ).fetchall();
+	return rows
 
 def logRequest():
 	app.logger.info(request.method+": "+request.url)

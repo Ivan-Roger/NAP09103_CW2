@@ -53,6 +53,7 @@ function request(method, url, callback, data = null) {
             var res = JSON.parse(this.responseText);
             callback(false, res);
           } catch (error) {
+            console.log(error);
             callback(false, null);
           }
         }
@@ -93,16 +94,16 @@ function openChat() {
         elem.querySelector("p").innerHTML = (c.tags!=null?c.tags:'No description registered');
         elem.setAttribute('data-userID', c.id);
 
-        if (c.isOnline)
+        if (c.isOnline) {
           elem.classList.add('user-online');
-        else {
+        } else {
           var lastSeen = new Date(c.lastOnline*1000);
           elem.querySelector("i .lastSeen").innerHTML = lastSeen.toISOString().replace('T',' ').split('.')[0];
         }
-
         elem.addEventListener('click', function (e) { // Register the listener
-          openDiscussion(c.id, e.target);
+          if (elem.classList.contains('user-online')) openDiscussion(c.id, e.target);
         });
+
         list.appendChild(elem);
       });
 
@@ -114,8 +115,8 @@ function openChat() {
         // startSocket();
       // });
     } else { // ERROR
-      if (data==null)
-        console.warn("CONTACTS > "+this.status, this.responseText);
+      if (typeof data=="string")
+        console.warn("CONTACTS > ", data);
       else
         console.warn("CONTACTS > "+data.error, data.message);
     }
@@ -136,7 +137,7 @@ function openDiscussion(recipientID) {
     } else {
       document.querySelector("#app-chat .app-chatBox").classList.remove('loading');
       document.querySelector("#app-chat .app-chatBox").classList.add('noDiscussionOpened');
-      if (data==null) {
+      if (typeof data=="string") {
       } else {
       }
     }
@@ -144,7 +145,7 @@ function openDiscussion(recipientID) {
 }
 
 function startSocket() {
-  socket = io.connect('http://' + document.domain + ':' + location.port + '/user-' + userID);
+  socket = io.connect('//'+document.domain+':'+location.port+'/user-'+userID);
   socket.on('connect', function() {
     console.log("SOCKET: Connected!");
     socket.emit('init', {userID: userID, pseudo: pseudo, token: token});
@@ -201,12 +202,12 @@ function login(email, password) {
       document.querySelector("#app-chat").classList.remove('hide');
       openChat();
     } else {
-      if (data==null) {
-        console.warn("LOGIN > "+res.error, res.message);
-        document.querySelector("#app-login-info").innerHTML = res.message;
+      if (typeof data=="string") {
+        console.warn("LOGIN > ", data);
+        document.querySelector("#app-login-info").innerHTML = "Error when logging in. Retry";
       } else {
-        console.warn("LOGIN > "+this.status, this.responseText);
-        document.querySelector("#app-login-info").innerHTML = "Error when loggin in. Retry";
+        console.warn("LOGIN > "+data.error, data.message);
+        document.querySelector("#app-login-info").innerHTML = data.message;
       }
       setTimeout(function () {
         document.querySelector("#app-login-info").innerHTML = "Please login :";

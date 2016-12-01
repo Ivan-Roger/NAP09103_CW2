@@ -2,6 +2,14 @@
 /* ---    APP style    --- */
 /* ----------------------- */
 
+section.app-login {
+  margin-top: 50px;
+}
+section.app-login .submit-group {
+  margin-top: 20px;
+  text-align: right;
+}
+
 section.app-chat {
   position: absolute;
   top: 51px;
@@ -45,6 +53,10 @@ aside.app-chatContacts div.app-contactList div.app-contactListItem h3 {
 
 aside.app-chatContacts div.app-contactList div.app-contactListItem.user-online {
   border-left-color: #2A3;
+  cursor: pointer;
+}
+aside.app-chatContacts div.app-contactList div.app-contactListItem.user-online:hover {
+  background-color: #EEE;
 }
 aside.app-chatContacts div.app-contactList div.app-contactListItem.user-online i {
   display: none;
