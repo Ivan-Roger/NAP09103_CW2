@@ -412,6 +412,13 @@ def socket_leaveDisc(data):
 		app.logger.info('SOCKET | Leave discussion. ')
 		del chat_discussions[disc['id']]
 
+@socketio.on('disconnect')
+def socket_disconnect():
+	ioID = request.cookies['io'];
+	app.logger.info('SOCKET | User quit! [IO-'+str(ioID)+']')
+	#for uID in connected_users
+	# TODO: Find user from IO_identifier and remove from api_tokens + connected_users ----------------------------------------------------------------------------------------------------------------------------------
+
 # ============== ERRORS ============== #
 
 @app.errorhandler(404)
