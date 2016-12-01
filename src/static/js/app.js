@@ -1,6 +1,5 @@
 // Client keys
 var keys = {
-  server: null,
   private: null,
   public: null,
   contacts: {}
@@ -11,35 +10,8 @@ var userID = null;
 var pseudo = null;
 var token = null;
 var socket = null;
-
-
-// class EncryptedKey:
-var EncryptedKey = function(value) {
-  var obj = {};
-  obj._value = value;
-  obj._encrypted = true;
-  obj.decrypt = function (passphrase, callback) {
-    if (obj.isDecrypted()) {
-      if (callback) callback();
-      return;
-    }
-    openpgp.decryptKey({privateKey: obj._value, passphrase: passphrase}).then(function (unlocked) {
-      obj._value = unlocked.key;
-      obj._decrypted = true;
-      console.log("PrivK: Decrypted private key !");
-      if (callback) callback(this);
-    });
-  }
-  obj.isDecrypted = function () {
-    return obj._decrypted;
-  }
-  obj.value = function () {
-    if (obj.isDecrypted())
-      return obj._value;
-    return null;
-  }
-  return obj;
-}
+var contacts = null;
+var currDisc = null;
 
 function request(method, url, callback, data = null) {
   var xhr = new XMLHttpRequest();
@@ -54,7 +26,7 @@ function request(method, url, callback, data = null) {
             callback(false, res);
           } catch (error) {
             console.log(error);
-            callback(false, null);
+            callback(false, "ERROR_"+this.status);
           }
         }
       }
@@ -70,25 +42,21 @@ function request(method, url, callback, data = null) {
     xhr.send();
 }
 
-var msgList = document.querySelector("#app-msgList");
+var msgList = document.querySelector("#app-chat .app-msgList");
 var msgTemplate = document.querySelector("#app-templates .app-chatMsg");
 
 // --- INIT ---
 openpgp.initWorker({ path:'/static/js/openpgp.worker.min.js' });
 
-/* // KEYS
-keys.public = openpgp.key.readArmored(pubkeyTxt).keys[0];
-keys.private = EncryptedKey(openpgp.key.readArmored(privkeyTxt).keys[0]);
-//*/
-
-// 'ThatiSREALLYaGooDSecret'
 function openChat() {
   request('GET', "/api/users/"+userID+"/contacts?token="+token, function(success, data) {
     if (success) {
       console.log("CONTACTS > Found "+data.contacts.length+" contacts.");
       var list = document.querySelector("#app-chat .app-contactList");
       var template = document.querySelector("#app-templates .app-contactListItem");
+      contacts = {};
       data.contacts.forEach(function (c) {
+        contacts[c.id] = c;
         var elem = template.cloneNode(true);
         elem.querySelector("h3").innerHTML = c.pseudo;
         elem.querySelector("p").innerHTML = (c.tags!=null?c.tags:'No description registered');
@@ -101,19 +69,46 @@ function openChat() {
           elem.querySelector("i .lastSeen").innerHTML = lastSeen.toISOString().replace('T',' ').split('.')[0];
         }
         elem.addEventListener('click', function (e) { // Register the listener
-          if (elem.classList.contains('user-online')) openDiscussion(c.id, e.target);
+          if (elem.classList.contains('user-online')) askDiscussion(c.id);
         });
 
         list.appendChild(elem);
       });
 
-      startSocket(); // Until keys are working
       // keys.server = openpgp.key.readArmored(data.server_key).keys[0];
-      // keys.public = openpgp.key.readArmored(data.public_key).keys[0];
-      // keys.private = EncryptedKey(openpgp.key.readArmored(data.private_key).keys[0]);
-      // keys.private.decrypt(password, function () {
-        // startSocket();
-      // });
+      request('GET', "/api/users/"+userID+"/public-key?token="+token, function (success, data) {
+        if (success) {
+          var armoredPubKeys = openpgp.key.readArmored(data.public_key);
+          if (armoredPubKeys.err!=undefined && armoredPubKeys.err.length>0) {
+            console.log("Error when reading public key: "+armoredPubKeys.err[0].message,armoredPubKeys.err);
+          } else {
+            keys.public = armoredPubKeys.keys[0];
+            console.log("Public key:",keys.public);
+            request('GET', "/api/users/"+userID+"/private-key?token="+token, function (success, data) {
+              if (success) {
+                var armoredPrivKey = openpgp.key.readArmored(data.private_key);
+                if (armoredPrivKey.err!=undefined && armoredPrivKey.err.length>0) {
+                  console.log("Error when reading private key: "+armoredPrivKey.err[0].message,armoredPrivKey.err);
+                } else {
+                  keys.private = armoredPrivKey.keys[0];
+                  keys.private.decrypt(password);
+                  console.log("Private key:",keys.private);
+                  startSocket();
+
+                  // keys.private = EncryptedKey(openpgp.key.readArmored(data.private_key).keys[0]);
+                  // keys.private.decrypt(password, function () {
+                  //   startSocket();
+                  // });
+                }
+              } else { // ERROR
+                console.warn("PRIVKEY > "+data);
+              }
+            });
+          }
+        } else { // ERROR
+          console.warn("PUBKEY > "+data);
+        }
+      });
     } else { // ERROR
       if (typeof data=="string")
         console.warn("CONTACTS > ", data);
@@ -123,69 +118,113 @@ function openChat() {
   });
 }
 
-function openDiscussion(recipientID) {
+function askDiscussion(recipientID) {
   var prevRecipient = document.querySelector("#app-chat .app-chatContacts .app-contactListItem.active");
   if (prevRecipient!=null) prevRecipient.classList.remove('active');
   document.querySelector("#app-chat .app-chatBox").classList.remove('noDiscussionOpened');
   document.querySelector("#app-chat .app-chatBox").classList.add('loading');
-  request('GET', '/api/users/'+recipientID+'/public-key?token='+token, function (success, data) {
+  socket.emit('ask', {user: recipientID, message: 'I want to talk', token: token});
+}
+
+function openDiscussion(disc) {
+  console.log("Opening discussion !",disc);
+  var prevRecipient = document.querySelector("#app-chat .app-chatContacts .app-contactListItem.active");
+  if (prevRecipient!=null) prevRecipient.classList.remove('active');
+  document.querySelector("#app-chat .app-chatBox").classList.remove('noDiscussionOpened');
+  document.querySelector("#app-chat .app-chatBox").classList.add('loading');
+  if (disc.userA.id==userID) recipient = disc.userB;
+  else recipient = disc.userA;
+  request('GET', '/api/users/'+recipient+'/public-key?token='+token, function (success, data) {
     if (success) {
+      currDisc = disc;
+      keys.contacts[recipient] = openpgp.key.readArmored(data.public_key).keys[0];
+      // TODO check that key is OK
       document.querySelector("#app-chat .app-chatBox").classList.remove('loading');
-      document.querySelector("#app-chat .app-chatContacts .app-contactListItem[data-userID='"+recipientID+"']").classList.add('active');
-      // document.querySelector("#app-chat .app-chatBox .app-chatBoxTitle-with").innerHTML = recipient.pseudo;
-      socket.emit('ask', {user: recipientID, token: token});
+      document.querySelector("#app-chat .app-chatContacts .app-contactListItem[data-userID='"+recipient+"']").classList.add('active');
+      document.querySelector("#app-chat .app-chatBox .app-chatBoxTitle-with").innerHTML = contacts[recipient].pseudo;
     } else {
       document.querySelector("#app-chat .app-chatBox").classList.remove('loading');
       document.querySelector("#app-chat .app-chatBox").classList.add('noDiscussionOpened');
-      if (typeof data=="string") {
-      } else {
-      }
+      console.warn("Contact PUBKEY >",data); // TODO Display error
     }
   });
 }
 
 function startSocket() {
-  socket = io.connect('//'+document.domain+':'+location.port+'/user-'+userID);
+  socket = io.connect('//'+document.domain+':'+location.port);
   socket.on('connect', function() {
     console.log("SOCKET: Connected!");
     socket.emit('init', {userID: userID, pseudo: pseudo, token: token});
   });
 
-  socket.on('accept', function(data) {
-    console.log("SOCKET: Accepted dicussion "+data.discussion.id);
+  socket.on('online', function(data) {
+    console.log("SOCKET: Contact online.",data.user);
+    contacts[data.user.id] = data.user;
+    var contactElem = document.querySelector("#app-chat .app-chatContacts .app-contactListItem[data-userID='"+data.user.id+"']");
+    contactElem.classList.add('user-online');
+    contactElem.querySelector("h3").innerHTML = data.user.pseudo;
+  });
+
+  socket.on('accept', function(data) { // My contact accpted to talk with me
+    console.log("SOCKET: Accepted discussion "+data.discussion.id);
     socket.emit('join', {discussion: data.discussion.id, token: token});
+    openDiscussion(data.discussion);
+  });
+
+  socket.on('ask', function(data) { // Someone asked to talk with me
+    console.log("SOCKET: Discussion request "+data.discussion.id);
+    socket.emit('accept', {discussion: data.discussion.id, token: token});
+    openDiscussion(data.discussion);
+  });
+
+  socket.on('join', function(data) {
+    if (data.sender!=userID) console.log("SOCKET: Discussion joined by "+contacts[data.sender].pseudo, data.discussion.id);
+    else console.log("SOCKET: Discussion joined by "+pseudo, data.discussion.id);
+    logMessage(data, true);
   });
 
   socket.on('message', function(data) {
-    console.log("Decrypting message from ("+data.pseudo+"["+data.userID+"])");
-    var date = new Date(data.time*1000);
-
-    options = {
-      message: openpgp.message.readArmored(data.message),     // parse armored message
-      privateKey: keys.private.value() // for decryption
-    };
-
-    openpgp.decrypt(options).then(function(plaintext) {
-      msg = msgTemplate.cloneNode(true);
-      msg.querySelector(".app-chatMsgUser .app-msgUserName").innerHTML = data.pseudo;
-      msg.querySelector(".app-chatMsgContent").innerHTML = plaintext.data;
-      msg.querySelector(".app-chatMsgInfos .app-msgInfosTime").innerHTML = date.toISOString().split('T')[1].split('.')[0];
-      msgList.appendChild(msg)
-      console.log("Message :",plaintext.data);
-    });
+    console.log("Decrypting message from ("+data.sender+")");
+    logMessage(data);
   });
 }
 
-function sendMessage(recID, msg) {
+function sendMessage(msg) {
+  if (disc.userA==userID) recID = disc.userB;
+  else recID = disc.userA;
   options = { // input as String (or Uint8Array)
     data: msg,
-    publicKeys: keys.contacts[recID].public,  // TODO: get public key of recipient
+    publicKeys: keys.contacts[recID],  // TODO: Check public key of recipient
   };
-
   openpgp.encrypt(options).then(function(ciphertext) {
     encryptedMsg = ciphertext.data; // '-----BEGIN PGP MESSAGE ... END PGP MESSAGE-----'
-    socket.emit('message', {token: token, message: encryptedMsg, 'recipient': recID});
+    socket.emit('message', {discussion: currDisc.id, sender: userID, message: encryptedMsg, token: token});
   });
+}
+
+function logMessage(msg, system = false) {
+  if (msg.encrypted) {
+    options = {
+      message: openpgp.message.readArmored(msg.message),     // parse armored message
+      privateKey: keys.private.value() // for decryption
+    };
+    openpgp.decrypt(options).then(function(plaintext) {
+      msg.message = plaintext.data;
+      msg.encrypted = false;
+      logMessage(msg, system);
+    });
+    return;
+  }
+  var date = new Date(msg.time*1000);
+  var msgElem = msgTemplate.cloneNode(true);
+  msgElem.querySelector(".app-msgInfosTime").innerHTML = date.toISOString().split('T')[1].split('.')[0];
+  if (msg.sender==userID) msgElem.querySelector(".app-msgUserName").innerHTML = pseudo;
+  else msgElem.querySelector(".app-msgUserName").innerHTML = contacts[msg.sender].pseudo;
+  msgElem.querySelector(".app-chatMsgContent").innerHTML = msg.message;
+  if (system) msgElem.classList.add('systemMsg');
+  msgList.appendChild(msgElem);
+  if (msg.sender==userID) console.log("Message ("+pseudo+"):",msg.message);
+  else console.log("Message ("+contacts[msg.sender].pseudo+"):",msg.message);
 }
 
 // ------------------------------- LOGIN -------------------------------
@@ -217,8 +256,28 @@ function login(email, password) {
   document.querySelector("#app-login-info").innerHTML = "Logging in ...";
 }
 
+function logout() {
+  document.querySelector("#app-chat").classList.add('hide');
+  document.querySelector("#app-login").classList.remove('hide');
+  userID = null;
+  pseudo = null;
+  token = null;
+  contacts = null;
+  currDisc = null;
+  socket.disconnect();
+  socket = null;
+  keys.private = null;
+  keys.public = null;
+  keys.contacts = {};
+}
+
 document.querySelector("#app-login-BTN").addEventListener('click', function () {
   var email = document.querySelector("#app-login-email").value;
   password = document.querySelector("#app-login-pw").value;
   login(email, password); // TODO: Hash password !!!
+});
+
+document.querySelector("#app-chat .app-chatInput .app-chatInputSub").addEventListener('click', function () {
+  var msg = document.querySelector("#app-chat .app-chatInput .app-chatInputMsg").value;
+  sendMessage(msg);
 });

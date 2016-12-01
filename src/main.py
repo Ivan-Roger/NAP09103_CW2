@@ -230,7 +230,7 @@ def route_apiUserPubkey_pseudo(pseudo):
 		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
 	user = db_getUser_fromPseudo(pseudo)
 	if user is None:
-		app.logger.error('USER_PUBKEY | User not found ! id: '+user['id'])
+		app.logger.error('USER_PUBKEY | User not found ! pseudo: '+pseudo)
 		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
 	cursor = get_db().cursor()
 	row = cursor.execute("SELECT key FROM publicKeys WHERE userID = ?", (user['id'],) ).fetchone();
@@ -262,7 +262,7 @@ def route_apiUserPrivkey_id(userID):
 	if row is None:
 		app.logger.error('USER_PRIVKEY | Returned NONE !')
 		return jsonify({'status': 'error', 'error': 'SYSTEM_ERROR', 'message': 'Error. No private key could be found for this user.'}), 500
-	data = {'status': 'OK', 'public_key': row['encKey']}
+	data = {'status': 'OK', 'private_key': row['encKey']}
 	return jsonify(data)
 
 @app.route('/api/users/<pseudo>/private-key', methods=['GET'])
@@ -277,7 +277,7 @@ def route_apiUserPrivkey_pseudo(pseudo):
 		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
 	user = db_getUser_fromPseudo(pseudo)
 	if user is None:
-		app.logger.error('USER_PRIVKEY | User not found ! id: '+user['id'])
+		app.logger.error('USER_PRIVKEY | User not found ! pseudo: '+pseudo)
 		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
 	if not token_canAccess_privateKey(req_token, user['id']):
 		app.logger.error('USER_PRIVKEY | Access forbidden ! token: '+req_token)
@@ -287,39 +287,66 @@ def route_apiUserPrivkey_pseudo(pseudo):
 	if row is None:
 		app.logger.error('USER_PRIVKEY | Returned NONE !')
 		return jsonify({'status': 'error', 'error': 'SYSTEM_ERROR', 'message': 'Error. No private key could be found for this user.'}), 500
-	data = {'status': 'OK', 'public_key': row['encKey']}
+	data = {'status': 'OK', 'private_key': row['encKey']}
 	return jsonify(data)
 
 # -------------- SOCKET -------------- #
 
 @socketio.on('connect')
 def socket_connect():
-	app.logger.info('SOCKET | New user! ')
+	app.logger.info('SOCKET | New user! [IO-'+str(request.cookies['io'])+']')
 
 @socketio.on('init')
 def socket_init(data):
 	if token_isValid(data.get('token', 'NO_TOKEN')):
-		app.logger.info('SOCKET | INIT: '+data.get('pseudo','UNKNOWN')+'['+str(data.get('userID', -1))+'] token: '+data.get('token', 'NO_TOKEN'))
 		uInfo = api_tokens[data['token']]
-		connected_users[str(uInfo['user'])] = timestamp()
-		join_room(str(uInfo['user'])+"-info")
+		join_room("user-"+str(uInfo['user']))
+		connected_users[str(uInfo['user'])] = str(request.cookies['io'])
+		user = db_getUser_fromID(uInfo['user'])
+		app.logger.info('SOCKET | INIT: '+user['pseudo']+'['+str(user['id'])+'] token: '+data['token'])
+		contacts = db_getContacts_fromUserID(uInfo['user'])
+		onlineInfo = {'user': {'id': user['id'], 'pseudo': user['pseudo']}, 'isOnline': True}
+		for c in contacts:
+			if user_isOnline(c['id']):
+				emit("online", onlineInfo, room="user-"+str(c['id']))
 
 @socketio.on('ask')
 def socket_askDisc(data):
 	if token_isValid(data.get('token', 'NO_TOKEN')):
 		uInfo = api_tokens[data['token']]
-		contacts = db_getContacts_fromUserID(uInfo['user'])
-		if data.get('user', -1) not in contacts or not user_isOnline(data['user']):
+		contacts = db_getContacts_fromUserID(data.get('user', -1))
+		if not user_isOnline(data['user']):
 			return
-		if discussion_find(uInfo['user'], data['user']) is not None:
+		foundUser = None
+		for c in contacts:
+			if c['id'] == uInfo['user']:
+				foundUser = c
+		if foundUser is None: # Not in contacts
 			return
-		app.logger.info('SOCKET | Requesting discussion : '+uInfo['user']+' > '+data['user'])
+		if discussion_find(uInfo['user'], data['user']) is not None: # Discussion already exists
+			return
 		discID = randomID().hex
 		while chat_discussions.get(discID, None) is not None:
 			discID = randomID().hex
-		disc = {'id': discID,'userA': uInfo['user'], 'userB': data['user'], 'accepted': False}
+		app.logger.info('SOCKET | Requesting discussion : '+str(uInfo['user'])+' > '+str(data['user'])+' ['+discID+']')
+		disc = {'id': discID,'userA': uInfo['user'], 'userB': data['user'], 'accepted': False, 'message': data.get('message', None)}
 		chat_discussions[discID] = disc
-		emit("ask", {'discussion': disc, 'message': 'I want to talk.'}, namespace='/user-'+str(disc['userB']))
+		emit("ask", {'discussion': disc}, room='user-'+str(disc['userB']))
+
+@socketio.on('reject')
+def socket_rejectDisc(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Discussion refused. '+disc['id'])
+		emit("reject", {'discussion': disc}, room='user-'+str(disc['userA']))
+		del chat_discussions[disc['id']]
 
 @socketio.on('accept')
 def socket_acceptDisc(data):
@@ -334,10 +361,13 @@ def socket_acceptDisc(data):
 			return
 		app.logger.info('SOCKET | Discussion started. '+disc['id'])
 		chat_discussions[disc['id']]['accepted'] = True
-		emit("accept", {'discussion': disc}, namespace='/user-'+str(disc['userA']))
+		emit("accept", {'discussion': disc}, room='user-'+str(disc['userA']))
+		msg = {'sender': uInfo['user'], 'discussion': disc, 'time': timestamp(), 'message': "has joined the discussion."}
+		emit("join", msg, room='user-'+str(disc['userA']))
+		emit("join", msg, room='user-'+str(disc['userB']))
 
-@socketio.on('reject')
-def socket_rejectDisc(data):
+@socketio.on('join')
+def socket_join(data):
 	if token_isValid(data.get('token', 'NO_TOKEN')):
 		uInfo = api_tokens[data['token']]
 		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
@@ -347,9 +377,26 @@ def socket_rejectDisc(data):
 			return
 		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
 			return
-		app.logger.info('SOCKET | Discussion refused. '+disc['id'])
-		emit("reject", {'discussion': disc}, namespace='/user-'+str(disc['userA']))
-		del chat_discussions[disc['id']]
+		app.logger.info('SOCKET | Join.')
+		msg = {'sender': uInfo['user'], 'discussion': disc, 'time': timestamp(), 'message': "has joined the discussion."}
+		emit("join", msg, room='user-'+str(disc['userA']))
+		emit("join", msg, room='user-'+str(disc['userB']))
+
+@socketio.on('message')
+def socket_message(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
+			return
+		disc = chat_discussions[data['discussion']]
+		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
+			return
+		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
+			return
+		app.logger.info('SOCKET | Message.')
+		msg = {'sender': uInfo['user'], 'discussion': disc['id'], 'time': timestamp(), 'message': data['message'], 'encrypted': True}
+		emit("message", msg, room='user-'+str(disc['userA']))
+		emit("message", msg, room='user-'+str(disc['userB']))
 
 @socketio.on('leave')
 def socket_leaveDisc(data):
@@ -364,38 +411,6 @@ def socket_leaveDisc(data):
 			return
 		app.logger.info('SOCKET | Leave discussion. ')
 		del chat_discussions[disc['id']]
-
-@socketio.on('message')
-def socket_message(data):
-	if token_isValid(data.get('token', 'NO_TOKEN')):
-		uInfo = api_tokens[data['token']]
-		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
-			return
-		disc = chat_discussions[data['discussion']]
-		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
-			return
-		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
-			return
-		app.logger.info('SOCKET | Message.')
-		msg = {'sender': uInfo['user'], 'discussion': disc['id'], 'message': data['message']}
-		emit("message",msg, namespace='/user-'+disc['userA'])
-		emit("message",msg, namespace='/user-'+disc['userB'])
-
-@socketio.on('join')
-def socket_join(data):
-	if token_isValid(data.get('token', 'NO_TOKEN')):
-		uInfo = api_tokens[data['token']]
-		if data.get('discussion', None) is None or chat_discussions.get(data['discussion'], None) is None:
-			return
-		disc = chat_discussions[data['discussion']]
-		if disc['userA']!=uInfo['user'] and disc['userB']!=uInfo['user']:
-			return
-		if not user_isOnline(disc['userA']) or not user_isOnline(disc['userB']):
-			return
-		app.logger.info('SOCKET | Join.')
-		msg = {'sender': uInfo['user'], 'discussion': disc['id'], 'message': "has joined the discussion."}
-		emit("join",msg, namespace='/user-'+disc['userA'])
-		emit("join",msg, namespace='/user-'+disc['userB'])
 
 # ============== ERRORS ============== #
 
@@ -504,14 +519,18 @@ def db_getUser_fromID(userID):
 def db_getContacts_fromUserID(userID):
 	cursor = get_db().cursor()
 	rows = cursor.execute("""
-		SELECT U.*, C.tags FROM contacts C, users U WHERE C.userID = ? AND C.contact = U.id
+		SELECT U.id, U.pseudo, U.lastOnline, C.tags
+		FROM contacts C, users U
+		WHERE C.userID = ? AND C.contact = U.id
 	""", (userID,) ).fetchall();
 	return rows
 
 def db_getContacts_fromPseudo(pseudo):
 	cursor = get_db().cursor()
 	rows = cursor.execute("""
-		SELECT U.*, C.tags FROM contacts C, users U WHERE C.userID = (SELECT id FROM users WHERE pseudo = ?)
+		SELECT U.id, U.pseudo, U.lastOnline, C.tags
+		FROM contacts C, users U
+		WHERE C.userID = (SELECT id FROM users WHERE pseudo = ?)
 		AND C.contact = U.id
 	""", (pseudo,) ).fetchall();
 	return rows
