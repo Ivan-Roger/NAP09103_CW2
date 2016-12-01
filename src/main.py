@@ -1,4 +1,4 @@
-# --- --- IMPORTS --- ---
+# ============== IMPORTS ==============
 
 import ConfigParser
 import json
@@ -9,10 +9,12 @@ from math import ceil
 from urllib import urlencode
 from os import listdir
 from os.path import basename
+from uuid import uuid4 as randomID
+from time import time as timestamp
 from flask_socketio import SocketIO, emit
-from flask import Flask, render_template, flash, redirect, url_for, request, jsonify
+from flask import Flask, render_template, flash, redirect, url_for, request, jsonify, g
 
-# --- --- GLOBAL VARS --- ---
+# ============== GLOBAL VARS ==============
 
 app = Flask(__name__)
 app.secret_key="41wZ9nAkS!hKrk5t#0GI"
@@ -25,6 +27,9 @@ app_nav = [
 	{'name': "App", 'path': "/app"}
 ]
 app_keys = {'private':"", 'public':""}
+connected_users = {}
+chat_rooms = []
+api_tokens = {}
 # ThatiSREALLYaGooDSecret
 
 class NotFoundEx(Exception):
@@ -38,7 +43,7 @@ class NotFoundEx(Exception):
 	def __str__(self):
 		return self.msg
 
-# --- --- ROUTES --- ---
+# ============== ROUTES ==============
 
 @app.route('/')
 def route_root():
@@ -59,6 +64,8 @@ def route_application():
 	data = {'config': app_config, 'nav': {'pages': app_nav, 'active': "/app"}}
 	return render_template('app.html', data=data)
 
+# -------------- API -------------- #
+
 @app.route('/api', methods=['GET'])
 def route_apiRoot():
 	logRequest()
@@ -70,7 +77,167 @@ def routeI_apiRoot():
 	data = {'endpoint': '/api', 'routes': [{'route': '/', 'desc': "Returns informations on the status of the service."}] }
 	return jsonify(data)
 
-# --- --- ERRORS --- --- #
+@app.route('/api/login', methods=['POST'])
+def route_apiLogin():
+	logRequest()
+	data = request.get_json()
+	if data is None:
+		app.logger.error('API_LOGIN | No JSON in request !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'No JSON content found.'}), 400
+	if data.get('email', None) is None:
+		app.logger.error('API_LOGIN | No email in request !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'No email found.'}), 400
+	if data.get('password', None) is None:
+		app.logger.error('API_LOGIN | No password in request !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'No password found.'}), 400
+	cursor = get_db().cursor()
+	print str(data['email'])
+	row = cursor.execute("SELECT * FROM users WHERE email = ?", (str(data['email']),) ).fetchone();
+	if row is None:
+		app.logger.error('API_LOGIN | Email not found, email: '+data['email'])
+		return jsonify({'status': 'error', 'error': 'LOGIN_ERROR', 'message': 'Invalid email or password !'}), 401
+	if row['hashedPW'] != data['password']:
+		app.logger.error('API_LOGIN | Invalid password, expected: '+row['hashedPW']+', found: '+data['password'])
+		return jsonify({'status': 'error', 'error': 'LOGIN_ERROR', 'message': 'Invalid email or password !'}), 401
+	con = get_db()
+	cur = con.cursor()
+	cur.execute("UPDATE users SET lastOnline = ?", (timestamp(),) )
+	con.commit()
+	data = {'status': 'OK', 'userID': row['id'], 'pseudo': row['pseudo'], 'token': gen_token(row['id'])}
+	return jsonify(data)
+
+@app.route('/api/users', methods=['GET'])
+def route_apiUsers():
+	logRequest()
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT COUNT(*) as count FROM users").fetchone();
+	if row is None:
+		app.logger.error('Database | Returned NONE !')
+		return jsonify({'status': 'error', 'error': 'DB_ERROR', 'message': 'Error when performing DB request. Returned None'}), 500
+	data = {'status': 'OK', 'count': row['count']}
+	return jsonify(data)
+
+@app.route('/api/users/<int:userID>', methods=['GET'])
+def route_apiUser_id(userID):
+	logRequest()
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT * FROM users WHERE id = ?", (userID,) ).fetchone();
+	if row is None:
+		app.logger.error('USER_INFO | UserID not found ! id: '+str(userID))
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	data = {'status': 'OK', 'id': row['id'], 'pseudo': row['pseudo']}
+	return jsonify(data)
+
+@app.route('/api/users/<pseudo>', methods=['GET'])
+def route_apiUser_pseudo(pseudo):
+	logRequest()
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT * FROM users WHERE pseudo = ?", (pseudo,) ).fetchone();
+	if row is None:
+		app.logger.error('USER_INFO | Pseudo not found ! pseudo: '+pseudo)
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	data = {'status': 'OK', 'id': row['id'], 'pseudo': row['pseudo']}
+	return jsonify(data)
+
+@app.route('/api/users/<pseudo>/contacts', methods=['GET'])
+def route_apiUserContacts_pseudo(pseudo):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_CONTACTS | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_CONTACTS | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromPseudo(pseudo)
+	if user is None:
+		app.logger.error('USER_CONTACTS | Pseudo not found ! pseudo: '+pseudo)
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	if not token_canAccess_profileDetails(req_token, user['id']):
+		app.logger.error('USER_CONTACTS | Access forbidden ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
+	cursor = get_db().cursor()
+	rows = cursor.execute("""
+		SELECT U.*, C.tags
+		FROM contacts C, users U
+		WHERE C.userID = (SELECT M.id FROM users M WHERE M.id = ?)
+		AND C.contact = U.id
+	""", (user['id'],) ).fetchall();
+	data = {'status': 'OK', 'contacts': []}
+	for row in rows:
+		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
+		if row['id'] in connected_users:
+			del uInfo['lastOnline']
+			uInfo['isOnline'] = true
+		data['contacts'].append(uInfo)
+	return jsonify(data)
+
+@app.route('/api/users/<int:userID>/contacts', methods=['GET'])
+def route_apiUserContacts_id(userID):
+	logRequest()
+	req_token = request.args.get('token', None)
+	if req_token is None:
+		app.logger.error('USER_CONTACTS | Missing token !')
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	if not token_isValid(req_token):
+		app.logger.error('USER_CONTACTS | Invalid token ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'REQUEST_ERROR', 'message': 'Missing or invalid token'}), 400
+	user = db_getUser_fromID(userID)
+	if user is None:
+		app.logger.error('USER_CONTACTS | User not found ! id: '+userID)
+		return jsonify({'status': 'error', 'error': 'NOT_FOUND_ERROR', 'message': 'No such user.'}), 404
+	if not token_canAccess_profileDetails(req_token, userID):
+		app.logger.error('USER_CONTACTS | Access forbidden ! token: '+req_token)
+		return jsonify({'status': 'error', 'error': 'ACCESS_ERROR', 'message': 'This token is not granted access to this ressource.'}), 403
+	cursor = get_db().cursor()
+	rows = cursor.execute("""
+		SELECT U.*, C.tags
+		FROM contacts C, users U
+		WHERE C.userID = (SELECT M.id FROM users M WHERE M.id = ?)
+		AND C.contact = U.id
+	""", (userID,) ).fetchall();
+	data = {'status': 'OK', 'contacts': []}
+	for row in rows:
+		uInfo = {'id': row['id'], 'pseudo': row['pseudo'], 'tags': row['tags'], 'isOnline': False, 'lastOnline': row['lastOnline']}
+		if row['id'] in connected_users:
+			del uInfo['lastOnline']
+			uInfo['isOnline'] = true
+		data['contacts'].append(uInfo)
+	return jsonify(data)
+
+# -------------- SOCKET -------------- #
+
+@socketio.on('connect')
+def socket_connect():
+	app.logger.info('SOCKET | New user! ')
+
+@socketio.on('init')
+def socket_init(data):
+	app.logger.info('SOCKET | INIT: '+data.get('pseudo','UNKNOWN')+'['+data.get('user', '-1')+'] token: '+data.get('token', 'NO_TOKEN'))
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		connected_users[uInfo['user']] = timestamp()
+
+@socketio.on('open')
+def socket_openLink(data):
+	if token_isValid(data.get('token', 'NO_TOKEN')):
+		uInfo = api_tokens[data['token']]
+		contacts = db_getContacts_fromUserID(uInfo['user'])
+		if data.get('recipient', -1) in contacts:
+			app.logger.info('SOCKET | Opening discussion between '++' and '++' . ')
+			emit("open", {}, room=uInfo['user']+"-"+data['recipient'])
+
+@socketio.on('close')
+def socket_closeLink(json):
+	app.logger.info('SOCKET | Encrypted message.')
+	emit("encMessage",json)
+
+@socketio.on('open')
+def socket_message(json):
+	app.logger.info('SOCKET | Encrypted message.')
+	emit("encMessage",json)
+
+# ============== ERRORS ============== #
 
 @app.errorhandler(404)
 @app.errorhandler(NotFoundEx)
@@ -83,7 +250,7 @@ def error_notFound(error):
 def error_notFound(error):
 	app.logger.error("ERROR - "+str(error))
 
-# --- --- Processing funcions --- --- #
+# ============== FUNCTIONS ============== #
 
 def splitListIntoPages(data, urlArgs):
 	args = urlArgs.to_dict()
@@ -104,25 +271,67 @@ def splitListIntoPages(data, urlArgs):
 	data['pages']['prefix'] = "?"+url_prefix+( "" if url_prefix == "" else "&" )+"page="
 	return data
 
-# --- --- SETUP --- ---
+def gen_token(userID):
+	for index in api_tokens:
+		if api_tokens[index]['user'] == userID:
+			return index
+	token = randomID().hex
+	while api_tokens.get(token, None) is not None:
+		token = randomID().hex
+	api_tokens[token] = {'user': userID, 'time': timestamp()}
+	return token
 
-@socketio.on('connect')
-def socket_connect():
-	app.logger.info('SOCKET | New user! ')
+def token_isValid(token):
+	found = api_tokens.get(token, None)
+	if found is None: # Token doesn't exist
+		return False
+	if timestamp()-found['time'] > 3600: # Token expired (>1h)
+		del api_tokens[token]
+		return False
+	return True
 
-@socketio.on('init')
-def socket_connect(data):
-	app.logger.info('SOCKET | User init state: '+data["state"])
-	if data['state']=='DONE':
-		emit("serverKey", app_keys['public'])
+def token_canAccess_profileDetails(token, uID):
+	found = api_tokens.get(token, None)
+	if found['user']==0: # Admin
+		return True
+	if found['user']==uID: # Same user
+		return True
+	return False
 
-@socketio.on('encMessage')
-def socket_message(json):
-	app.logger.info('SOCKET | Encrypted message. ')
-	emit("encMessage",json)
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return d
+
+def get_db():
+	db = getattr(g, 'db', None)
+	if db is None:
+		db = sqlite3.connect(app_config['db']['database'])
+		db.row_factory = dict_factory
+		g.db = db
+	return db
+
+def db_getUser_fromPseudo(pseudo):
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT * FROM users WHERE pseudo = ?", (pseudo,) ).fetchone();
+	return row
+
+def db_getUser_fromID(userID):
+	cursor = get_db().cursor()
+	row = cursor.execute("SELECT * FROM users WHERE id = ?", (userID,) ).fetchone();
+	return row
 
 def logRequest():
 	app.logger.info(request.method+": "+request.url)
+
+# ============== SETUP ============== #
+
+@app.teardown_appcontext
+def close_db(ex):
+	db = getattr(g, 'db', None)
+	if db is not None:
+		db.close()
 
 def init(app):
 	app.logger.info("INIT - Initializing application ...")
@@ -165,7 +374,6 @@ def init(app):
 	except IOError as e:
 		app.logger.error("ERROR - Could not get application keys.")
 		app.logger.error("\t>>"+str(e))
-	app_db = sqlite3.connect(app_config['db']['database'])
 
 def logs(app):
 	log_pathname = app_config['logging']['location'] + app_config['logging']['file']

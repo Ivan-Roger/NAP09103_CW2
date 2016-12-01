@@ -9,30 +9,48 @@
 {% endblock %}
 
 {% block content %}
-<section class="container-fluid app-chat">
-  <aside class="col-lg-visible col-lg-2 app-contactsPanel">
-    <h1>Contacts</h1>
-  </aside>
-  <article class="col-md-12 col-lg-7 app-chatBox">
-    <h1>{{data.config.about.name}} - Chat</h1>
-    <div class="app-chatLog">
-      <div class="app-msgList" id="app-msgList">
-        <div class="app-chatMsg" id="app-template-chatMsg">
-          <div class="app-chatMsgInfos">
-            <i class="app-msgInfosTime">16:06:34</i>
-          </div>
-          <div class="app-chatMsgUser">
-            <b class="app-msgUserName">USER</b>:
-          </div>
-          <div class="app-chatMsgContent">
-            This is the content of the message !
-          </div>
+<section class="container app-login" id="app-login">
+  <div class="jumbotron">
+    <p id="app-login-info">Please login :</p>
+    <div>
+      <label for="app-login-email">Email</label>
+      <input class="form-control" type="email" id="app-login-email"/>
+    </div>
+    <div>
+      <label for="app-login-pw">Password</label>
+      <input class="form-control" type="password" id="app-login-pw"/>
+    </div>
+    <p>
+      <a class="btn btn-primary btn-lg pull-right" id="app-login-BTN">LOGIN</a>
+    </p>
+  </div>
+</section>
+
+<section class="container-fluid app-chat hide" id="app-chat">
+  <aside class="col-lg-visible col-lg-2 app-chatContacts">
+    <h2>Contacts</h2>
+    <div class="app-contactList">
+    </div>
+    <div class="app-contactAdd">
+      <h3>Add a contact</h3>
+      <div class="input-group">
+        <input type="text" class="form-control app-contactAdd-search"/>
+        <div class="input-group-btn">
+          <a class="btn btn-default">Search</a>
         </div>
       </div>
     </div>
-    <div class="app-chatInput">
+  </aside>
+  <article class="col-md-12 col-lg-7 app-chatBox">
+    <h2 class="app-chatBoxTitle">Open a discussion</h2>
+    <!-- Discussion with: <i class="app-chatBoxTitle-with"></i> -->
+    <div class="app-chatLog hide">
+      <div class="app-msgList">
+      </div>
+    </div>
+    <div class="app-chatInput hide">
       <div class="input-group">
-        <input class="form-control" type="text" name="msgText" autocomplete="off"/>
+        <input class="form-control" type="text" class="app-chatInputMsg" autocomplete="off"/>
         <div class="input-group-btn">
           <a class="btn btn-default">Send</a>
         </div>
@@ -40,12 +58,35 @@
     </div>
   </article>
   <aside class="col-lg-visible col-lg-3 app-detailsPanel">
-    <h1>Details</h1>
+    <h2>Details</h2>
   </aside>
 </section>
 {% endblock %}
 {% block footer %}{% endblock %}
 
-{% block jsAfter %}
-<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block depAfter %}
+  <!-- Templates -->
+  <div class="hide">
+    <!-- Chat Message -->
+    <div class="app-chatMsg" id="app-template-chatMsg">
+      <div class="app-chatMsgInfos">
+        <i class="app-msgInfosTime">16:06:34</i>
+      </div>
+      <div class="app-chatMsgUser">
+        <b class="app-msgUserName">USER</b>:
+      </div>
+      <div class="app-chatMsgContent">
+        This is the content of the message !
+      </div>
+    </div>
+    <!-- Contact item -->
+    <div class="app-contactListItem" id="app-template-contactListItem">
+      <h3>Pseudo</h3>
+      <i>Last seen: <span class="lastOnline"></span></i>
+      <p>TAGS ...</p>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% endblock %}
