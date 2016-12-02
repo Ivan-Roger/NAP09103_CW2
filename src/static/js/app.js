@@ -69,7 +69,8 @@ function openChat() {
           elem.querySelector("i .lastSeen").innerHTML = lastSeen.toISOString().replace('T',' ').split('.')[0];
         }
         elem.addEventListener('click', function (e) { // Register the listener
-          if (elem.classList.contains('user-online')) askDiscussion(c.id);
+          if (elem.classList.contains('user-online') && !elem.classList.contains('active'))
+          askDiscussion(c.id);
         });
 
         list.appendChild(elem);
@@ -132,8 +133,11 @@ function openDiscussion(disc) {
   if (prevRecipient!=null) prevRecipient.classList.remove('active');
   document.querySelector("#app-chat .app-chatBox").classList.remove('noDiscussionOpened');
   document.querySelector("#app-chat .app-chatBox").classList.add('loading');
-  if (disc.userA.id==userID) recipient = disc.userB;
+  document.querySelector("#app-chat .app-chatInput").classList.remove('hide');
+  msgList.innerHTML="";
+  if (disc.userA==userID) recipient = disc.userB;
   else recipient = disc.userA;
+  console.log("Recipient is "+recipient, contacts[recipient]);
   request('GET', '/api/users/'+recipient+'/public-key?token='+token, function (success, data) {
     if (success) {
       currDisc = disc;
@@ -165,6 +169,23 @@ function startSocket() {
     contactElem.querySelector("h3").innerHTML = data.user.pseudo;
   });
 
+  socket.on('offline', function(data) {
+    console.log("SOCKET: Contact offline.",data.user);
+    contacts[data.user].isOnline = false;
+    contacts[data.user].lastSeen = data.time;
+    var contactElem = document.querySelector("#app-chat .app-chatContacts .app-contactListItem[data-userID='"+data.user+"']");
+    contactElem.classList.remove('user-online');
+    if (contactElem.classList.contains('active')) {
+      logMessage({sender: data.user, time: data.time, message: 'disconnected !'}, true);
+      document.querySelector("#app-chat .app-chatInput").classList.add('hide');
+      setTimeout(function() {
+        contactElem.classList.remove('active');
+        document.querySelector("#app-chat .app-chatBox").classList.remove('loading');
+        document.querySelector("#app-chat .app-chatBox").classList.add('noDiscussionOpened');
+      }, 5000);
+    }
+  });
+
   socket.on('accept', function(data) { // My contact accpted to talk with me
     console.log("SOCKET: Accepted discussion "+data.discussion.id);
     socket.emit('join', {discussion: data.discussion.id, token: token});
@@ -190,8 +211,8 @@ function startSocket() {
 }
 
 function sendMessage(msg) {
-  if (disc.userA==userID) recID = disc.userB;
-  else recID = disc.userA;
+  if (currDisc.userA==userID) recID = currDisc.userB;
+  else recID = currDisc.userA;
   options = { // input as String (or Uint8Array)
     data: msg,
     publicKeys: keys.contacts[recID],  // TODO: Check public key of recipient
@@ -199,6 +220,7 @@ function sendMessage(msg) {
   openpgp.encrypt(options).then(function(ciphertext) {
     encryptedMsg = ciphertext.data; // '-----BEGIN PGP MESSAGE ... END PGP MESSAGE-----'
     socket.emit('message', {discussion: currDisc.id, sender: userID, message: encryptedMsg, token: token});
+    logMessage({discussion: currDisc.id, sender: userID, message: msg, time: date.now()/1000});
   });
 }
 
@@ -206,7 +228,7 @@ function logMessage(msg, system = false) {
   if (msg.encrypted) {
     options = {
       message: openpgp.message.readArmored(msg.message),     // parse armored message
-      privateKey: keys.private.value() // for decryption
+      privateKey: keys.private // for decryption
     };
     openpgp.decrypt(options).then(function(plaintext) {
       msg.message = plaintext.data;
@@ -236,6 +258,7 @@ function login(email, password) {
       pseudo = data.pseudo;
       token = data.token;
       document.querySelector("#app-login-email").value = "";
+      document.querySelector("#app-login-pw").value = "";
       console.log("TOKEN > "+token);
       document.querySelector("#app-login").classList.add('hide');
       document.querySelector("#app-chat").classList.remove('hide');
@@ -258,7 +281,9 @@ function login(email, password) {
 
 function logout() {
   document.querySelector("#app-chat").classList.add('hide');
-  document.querySelector("#app-login").classList.remove('hide');
+  document.querySelector("#app-chat .app-contactList").innerHTML="";
+  document.querySelector("#app-chat .app-chatBox").classList.remove('loading');
+  document.querySelector("#app-chat .app-chatBox").classList.add('noDiscussionOpened');
   userID = null;
   pseudo = null;
   token = null;
@@ -269,6 +294,8 @@ function logout() {
   keys.private = null;
   keys.public = null;
   keys.contacts = {};
+  document.querySelector("#app-login-info").innerHTML = "Please login :";
+  document.querySelector("#app-login").classList.remove('hide');
 }
 
 document.querySelector("#app-login-BTN").addEventListener('click', function () {
@@ -278,6 +305,7 @@ document.querySelector("#app-login-BTN").addEventListener('click', function () {
 });
 
 document.querySelector("#app-chat .app-chatInput .app-chatInputSub").addEventListener('click', function () {
-  var msg = document.querySelector("#app-chat .app-chatInput .app-chatInputMsg").value;
-  sendMessage(msg);
+  var elem = document.querySelector("#app-chat .app-chatInput .app-chatInputMsg");
+  sendMessage(elem.value);
+  elem.value = "";
 });

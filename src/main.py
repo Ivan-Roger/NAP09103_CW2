@@ -292,10 +292,6 @@ def route_apiUserPrivkey_pseudo(pseudo):
 
 # -------------- SOCKET -------------- #
 
-@socketio.on('connect')
-def socket_connect():
-	app.logger.info('SOCKET | New user! [IO-'+str(request.cookies['io'])+']')
-
 @socketio.on('init')
 def socket_init(data):
 	if token_isValid(data.get('token', 'NO_TOKEN')):
@@ -329,7 +325,7 @@ def socket_askDisc(data):
 		while chat_discussions.get(discID, None) is not None:
 			discID = randomID().hex
 		app.logger.info('SOCKET | Requesting discussion : '+str(uInfo['user'])+' > '+str(data['user'])+' ['+discID+']')
-		disc = {'id': discID,'userA': uInfo['user'], 'userB': data['user'], 'accepted': False, 'message': data.get('message', None)}
+		disc = {'id': discID, 'userA': uInfo['user'], 'userB': data['user'], 'accepted': False, 'message': data.get('message', None)}
 		chat_discussions[discID] = disc
 		emit("ask", {'discussion': disc}, room='user-'+str(disc['userB']))
 
@@ -416,8 +412,23 @@ def socket_leaveDisc(data):
 def socket_disconnect():
 	ioID = request.cookies['io'];
 	app.logger.info('SOCKET | User quit! [IO-'+str(ioID)+']')
-	#for uID in connected_users
-	# TODO: Find user from IO_identifier and remove from api_tokens + connected_users ----------------------------------------------------------------------------------------------------------------------------------
+	userID = None;
+	for uID in connected_users.keys():
+		if connected_users[uID]==ioID:
+			userID = uID
+	if userID is not None:
+		del connected_users[userID]
+		for token in api_tokens.keys():
+			if api_tokens[token]['user']==userID:
+				del api_tokens[token]
+		contacts = db_getContacts_fromUserID(userID)
+		for c in contacts:
+			if user_isOnline(c['id']):
+				emit("offline", {'user': userID, 'time': timestamp()}, room="user-"+str(c['id']))
+		for discID in chat_discussions:
+			disc = chat_discussions[discID]
+			if disc['userA']==userID or disc['userB']==userID:
+				del chat_discussions[discID]
 
 # ============== ERRORS ============== #
 
@@ -457,7 +468,8 @@ def user_isOnline(uID):
 	return connected_users.get(str(uID), None) is not None
 
 def discussion_find(userA, userB):
-	for disc in chat_discussions:
+	for discID in chat_discussions:
+		disc = chat_discussions[discID]
 		if disc['userA']==userA and disc['userB']==userB:
 			return disc
 		if disc['userA']==userB and disc['userB']==userA:

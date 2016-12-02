@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Home{% endblock %}
+{% block title %}Application{% endblock %}
 
 {% block depHead %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
@@ -27,7 +27,7 @@
 </section>
 
 <section class="container-fluid app-chat hide" id="app-chat">
-  <aside class="col-lg-visible col-lg-2 app-chatContacts">
+  <aside class="col-lg-visible col-md-3 col-lg-2 app-chatContacts">
     <h2>Contacts</h2>
     <div class="showContacts">
       <div class="app-contactList">
@@ -46,7 +46,7 @@
       </div>
     </div>
   </aside>
-  <article class="col-md-12 col-lg-7 app-chatBox noDiscussionOpened">
+  <article class="col-sm-12 col-md-9 col-lg-7 app-chatBox noDiscussionOpened">
     <div class="help">
       <h2>Open a discussion</h2>
       <p>
@@ -65,7 +65,7 @@
       </div>
       <div class="app-chatInput">
         <div class="input-group">
-          <input class="form-control" type="text" class="app-chatInputMsg" autocomplete="off"/>
+          <input class="form-control app-chatInputMsg" type="text" autocomplete="off"/>
           <div class="input-group-btn">
             <a class="btn btn-default app-chatInputSub">Send</a>
           </div>
